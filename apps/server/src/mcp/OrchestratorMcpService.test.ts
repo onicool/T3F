@@ -49,6 +49,7 @@ import * as CommandReceiptStore from "../orchestration-v2/CommandReceiptStore.ts
 import * as EffectWorker from "../orchestration-v2/EffectWorker.ts";
 import * as LegacyV1ThreadImporter from "../orchestration-v2/legacy/LegacyV1ThreadImporter.ts";
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
+import * as ProjectProviderLock from "../orchestration-v2/ProjectProviderLock.ts";
 import * as ProviderReplayHarness from "../orchestration-v2/testkit/ProviderReplayHarness.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import {
@@ -2450,6 +2451,19 @@ describe("OrchestratorMcpService provider resolution", () => {
           Layer.mock(ThreadManagementService.ThreadManagementService)({
             hasReceipt: () => Effect.succeed(false),
             assertProviderInstanceEnabled: () => Effect.void,
+            assertProjectProviderNotLocked: ({ projectId: lockedProjectId, instanceId }) => {
+              // ProjectProviderLock.assertAllowed's rule on this fixture's
+              // records: the project is unflagged, so the lock cannot trip.
+              const projectContainsPersonalInfo = false;
+              return projectContainsPersonalInfo && instanceId !== codexInstanceId
+                ? Effect.fail(
+                    new ProjectProviderLock.ProjectProviderLockedError({
+                      projectId: lockedProjectId,
+                      instanceId,
+                    }),
+                  )
+                : Effect.void;
+            },
             getThreadRecords: (threadId) =>
               Effect.succeed(threadId === parentThreadId ? parentProjection([]) : childShell),
             dispatch: (command) =>
