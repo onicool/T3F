@@ -24,6 +24,7 @@ import * as Schema from "effect/Schema";
 import * as ServerSettings from "../serverSettings.ts";
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
 import type { OrchestratorV2Error } from "./Orchestrator.ts";
+import * as ProjectProviderLock from "./ProjectProviderLock.ts";
 import * as ProjectStore from "./ProjectStore.ts";
 import { forkInheritedRunOrdinals, ProjectionStoreThreadNotFoundError } from "./ProjectionStore.ts";
 import * as ThreadManagementService from "./ThreadManagementService.ts";
@@ -46,6 +47,7 @@ export class ThreadTitleRegenerationService extends Context.Service<
       | ProjectStore.ProjectStoreV2Error
       | ServerSettingsError
       | ThreadManagementService.ThreadManagementProviderInstanceDisabledError
+      | ProjectProviderLock.ProjectProviderLockedError
     >;
   }
 >()("t3/orchestration-v2/ThreadTitleRegenerationService") {}

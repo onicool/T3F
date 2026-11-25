@@ -65,6 +65,7 @@ import {
 } from "@t3tools/provider-core/server/subagentProjection";
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
+import * as ProjectProviderLock from "./ProjectProviderLock.ts";
 
 const DEFAULT_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 const DEFAULT_MAX_IDLE_PIN_MS = 4 * 60 * 60 * 1000;
@@ -431,6 +432,9 @@ export const layerWithOptions = (
       /** Unreadable settings must preserve explicit browser-access opt-outs. */
       const serverSettings = yield* Effect.serviceOption(ServerSettings.ServerSettingsService);
       const projectService = yield* Effect.serviceOption(ProjectService.ProjectService);
+      const projectProviderLock = yield* Effect.serviceOption(
+        ProjectProviderLock.ProjectProviderLock,
+      );
       const eventSink = yield* EventSink.EventSinkV2;
       const commandOutput = yield* CommandOutputHub.CommandOutputHub;
       const promptSuggestionStore = yield* SubscriptionRef.make<
@@ -570,14 +574,20 @@ export const layerWithOptions = (
                 >(["orchestration", "worktree", "pull-requests"]);
                 if (browserToolsAvailable) capabilities.add("preview");
                 if (deviceToolsAvailable) capabilities.add("device");
-                const subagent = yield* projectionStore.getThread(threadId).pipe(
-                  Effect.map((thread) => thread.lineage.relationshipToParent === "subagent"),
-                  Effect.orElseSucceed(() => false),
-                );
-                // TODO(Step 4): replace with the Codex lock central check for
-                // (thread's project, providerInstanceId). Until then no session
-                // is bridge-guarded; only the env plumbing is in place.
-                const bridgeGuardBlock = false;
+                const thread = yield* projectionStore
+                  .getThread(threadId)
+                  .pipe(Effect.orElseSucceed(() => undefined));
+                const subagent = thread?.lineage.relationshipToParent === "subagent";
+                // Fail closed: when the thread's lock state cannot be read, the session is
+                // bridge-guarded rather than issued unguarded.
+                const bridgeGuardBlock = Option.isNone(projectProviderLock)
+                  ? false
+                  : thread === undefined
+                    ? true
+                    : yield* projectProviderLock.value.isLockedOut({
+                        projectId: thread.projectId,
+                        instanceId: providerInstanceId,
+                      });
                 const existing = yield* mcpSessions.read(threadId);
                 if (existing !== undefined) {
                   // Reserve before async validation so release cannot revoke between validation and reservation.

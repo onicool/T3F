@@ -14,6 +14,7 @@ import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ProviderContinuationRequests from "@t3tools/provider-core/server/ProviderContinuationRequests";
 import * as KeyedLock from "@t3tools/shared/KeyedLock";
 import type * as Orchestrator from "./Orchestrator.ts";
+import type * as ProjectProviderLock from "./ProjectProviderLock.ts";
 import * as ThreadManagementService from "./ThreadManagementService.ts";
 import { isUndeliveredMailboxSteer } from "./NotificationMailbox.ts";
 
@@ -174,6 +175,49 @@ export const layer = Layer.effectDiscard(
             fixtureName: "delegated-completion",
             commandName: "dispatch",
           });
+          const disposeUnavailableCompletion = (
+            error:
+              | ThreadManagementService.ThreadManagementProviderInstanceDisabledError
+              | ProjectProviderLock.ProjectProviderLockedError,
+          ) =>
+            Effect.logInfo(
+              "orchestration-v2.provider-continuation.delegated-completion-disabled",
+              {
+                threadId: request.threadId,
+                projectId: error.projectId,
+                instanceId: error.instanceId,
+              },
+            ).pipe(
+              Effect.andThen(
+                Effect.forEach(
+                  delivery.taskIds,
+                  (taskId) =>
+                    ids.allocate
+                      .command({
+                        fixtureName: "delegated-completion",
+                        commandName: "dispose-disabled",
+                      })
+                      .pipe(
+                        Effect.flatMap((disposeCommandId) =>
+                          threads.dispatch({
+                            type: "delegated_task.completion-delivery.dispose",
+                            commandId: disposeCommandId,
+                            parentThreadId: request.threadId,
+                            taskId,
+                          }),
+                        ),
+                      ),
+                  { discard: true },
+                ),
+              ),
+              Effect.andThen(
+                request.clearIfCurrent !== undefined
+                  ? request.clearIfCurrent()
+                  : request.dispatchIfCurrent !== undefined
+                    ? request.dispatchIfCurrent(Effect.void)
+                    : Effect.void,
+              ),
+            );
           yield* threads
             .dispatch({
               type: "message.dispatch",
@@ -193,45 +237,8 @@ export const layer = Layer.effectDiscard(
             })
             .pipe(
               Effect.catchTags({
-                ThreadManagementProviderInstanceDisabledError: (error) =>
-                  Effect.logInfo(
-                    "orchestration-v2.provider-continuation.delegated-completion-disabled",
-                    {
-                      threadId: request.threadId,
-                      projectId: error.projectId,
-                      instanceId: error.instanceId,
-                    },
-                  ).pipe(
-                    Effect.andThen(
-                      Effect.forEach(
-                        delivery.taskIds,
-                        (taskId) =>
-                          ids.allocate
-                            .command({
-                              fixtureName: "delegated-completion",
-                              commandName: "dispose-disabled",
-                            })
-                            .pipe(
-                              Effect.flatMap((disposeCommandId) =>
-                                threads.dispatch({
-                                  type: "delegated_task.completion-delivery.dispose",
-                                  commandId: disposeCommandId,
-                                  parentThreadId: request.threadId,
-                                  taskId,
-                                }),
-                              ),
-                            ),
-                        { discard: true },
-                      ),
-                    ),
-                    Effect.andThen(
-                      request.clearIfCurrent !== undefined
-                        ? request.clearIfCurrent()
-                        : request.dispatchIfCurrent !== undefined
-                          ? request.dispatchIfCurrent(Effect.void)
-                          : Effect.void,
-                    ),
-                  ),
+                ThreadManagementProviderInstanceDisabledError: disposeUnavailableCompletion,
+                ProjectProviderLockedError: disposeUnavailableCompletion,
               }),
             );
           yield* clearRetryAttempt(retryKey);
@@ -265,7 +272,9 @@ export const layer = Layer.effectDiscard(
           .pipe(Effect.tap((dispatched) => releaseIfNeverStarted(request, messageId, dispatched)));
         // Catch after dispatchIfCurrent so adapters see raw failures first; clearIfCurrent is idempotent and covers others.
         const logInstanceDisabled = (
-          error: ThreadManagementService.ThreadManagementProviderInstanceDisabledError,
+          error:
+            | ThreadManagementService.ThreadManagementProviderInstanceDisabledError
+            | ProjectProviderLock.ProjectProviderLockedError,
         ) =>
           Effect.logInfo("orchestration-v2.provider-continuation.instance-disabled", {
             threadId: request.threadId,
@@ -281,6 +290,7 @@ export const layer = Layer.effectDiscard(
           yield* dispatch.pipe(
             Effect.catchTags({
               ThreadManagementProviderInstanceDisabledError: logInstanceDisabled,
+              ProjectProviderLockedError: logInstanceDisabled,
             }),
           );
           return;
@@ -288,6 +298,7 @@ export const layer = Layer.effectDiscard(
         yield* request.dispatchIfCurrent(dispatch).pipe(
           Effect.catchTags({
             ThreadManagementProviderInstanceDisabledError: logInstanceDisabled,
+            ProjectProviderLockedError: logInstanceDisabled,
           }),
         );
       },

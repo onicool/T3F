@@ -315,6 +315,14 @@ const resolveAutoBootstrapWelcomeTargets = Effect.gen(function* () {
                 projectId: project.id,
                 instanceId: error.instanceId,
               }).pipe(Effect.as(undefined)),
+            ProjectProviderLockedError: (error) =>
+              Effect.logInfo(
+                "Skipped bootstrap thread because its project is locked to Codex",
+                {
+                  projectId: project.id,
+                  instanceId: error.instanceId,
+                },
+              ).pipe(Effect.as(undefined)),
             ThreadLaunchError: (error) =>
               Effect.logWarning("Failed to launch bootstrap thread", {
                 projectId: project.id,

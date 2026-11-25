@@ -28,6 +28,7 @@ function dispatchWasNotAccepted(
     case "OrchestratorProviderSelectionBusyError":
     case "OrchestratorRuntimeModeAboveCeilingError":
     case "ThreadManagementProviderInstanceDisabledError":
+    case "ProjectProviderLockedError":
     case "ThreadManagementWorktreeRestoreError":
       return true;
     default:
@@ -270,7 +271,10 @@ export const launchThread = Effect.fn("ThreadMessageIntake.launchThread")(functi
         ),
       ),
       Effect.tapError((error) => {
-        if (error._tag === "ThreadManagementProviderInstanceDisabledError") {
+        if (
+          error._tag === "ThreadManagementProviderInstanceDisabledError" ||
+          error._tag === "ProjectProviderLockedError"
+        ) {
           return AttachmentClaims.releaseClaimedAttachments(claimed.claimedPaths);
         }
         // Project/receipt reads precede dispatch; create-thread errors can wrap post-message reads and prove nothing alone.

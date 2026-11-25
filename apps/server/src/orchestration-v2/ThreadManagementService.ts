@@ -64,6 +64,7 @@ import * as Orchestrator from "./Orchestrator.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import { projectedRowEncodedBytes } from "./threadHistoryPaging.ts";
 import { threadPullRequestsOf } from "../sourceControl/threadPullRequests.ts";
+import * as ProjectProviderLock from "./ProjectProviderLock.ts";
 import * as ProviderSessionManager from "./ProviderSessionManager.ts";
 import * as ThreadCommandExecutor from "./ThreadCommandExecutor.ts";
 import { DispatchModeLimit, exceededDispatchModeLimit } from "./DispatchModeLimit.ts";
@@ -380,6 +381,7 @@ export const ThreadManagementError = Schema.Union([
   ThreadManagementProjectThreadsListError,
   ThreadManagementDurableRunProjectionError,
   ThreadManagementProviderInstanceDisabledError,
+  ProjectProviderLock.ProjectProviderLockedError,
   ThreadManagementWorktreeRestoreError,
 ]);
 export type ThreadManagementError = typeof ThreadManagementError.Type;
@@ -400,7 +402,9 @@ export interface ThreadManagementServiceShape {
     command: OrchestrationV2ServerCommand,
   ) => Effect.Effect<
     Orchestrator.OrchestratorV2DispatchResult,
-    Orchestrator.OrchestratorV2Error | ThreadManagementProviderInstanceDisabledError
+    | Orchestrator.OrchestratorV2Error
+    | ThreadManagementProviderInstanceDisabledError
+    | ProjectProviderLock.ProjectProviderLockedError
   >;
   readonly getThreadHistoryPage: Orchestrator.OrchestratorV2["Service"]["getThreadHistoryPage"];
   readonly getTimelinePage: Orchestrator.OrchestratorV2["Service"]["getTimelinePage"];
@@ -466,6 +470,11 @@ export interface ThreadManagementServiceShape {
     readonly commandId: CommandId;
     readonly instanceId: ProviderInstanceId;
   }) => Effect.Effect<void, ThreadManagementProviderInstanceDisabledError>;
+  /** Unlike the enablement check, a receipt replay never skips the personal-information lock. */
+  readonly assertProjectProviderNotLocked: (input: {
+    readonly projectId: ProjectId;
+    readonly instanceId: ProviderInstanceId;
+  }) => Effect.Effect<void, ProjectProviderLock.ProjectProviderLockedError>;
   readonly isProviderInstanceEnabledForProject: (input: {
     readonly projectId: ProjectId;
     readonly instanceId: ProviderInstanceId;
@@ -488,7 +497,9 @@ export interface ThreadManagementServiceShape {
     readonly byOwnAgent: boolean;
   }) => Effect.Effect<
     { readonly sequence: number } | { readonly settlesWhenTurnEnds: true },
-    Orchestrator.OrchestratorV2Error | ThreadManagementProviderInstanceDisabledError
+    | Orchestrator.OrchestratorV2Error
+    | ThreadManagementProviderInstanceDisabledError
+    | ProjectProviderLock.ProjectProviderLockedError
   >;
   readonly interruptThread: (
     input: ThreadManagementInterruptInput,
@@ -518,7 +529,9 @@ export interface ThreadManagementServiceShape {
     readonly reason?: string | undefined;
   }) => Effect.Effect<
     void,
-    Orchestrator.OrchestratorV2Error | ThreadManagementProviderInstanceDisabledError
+    | Orchestrator.OrchestratorV2Error
+    | ThreadManagementProviderInstanceDisabledError
+    | ProjectProviderLock.ProjectProviderLockedError
   >;
   readonly getThreadEventSequence: Orchestrator.OrchestratorV2["Service"]["getThreadEventSequence"];
   readonly recoverDelegatedTask: Orchestrator.OrchestratorV2["Service"]["recoverDelegatedTask"];
@@ -614,6 +627,9 @@ const make = Effect.gen(function* () {
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const receipts = yield* CommandReceiptStore.CommandReceiptStoreV2;
   const worktreeRestore = yield* ThreadWorktreeRestore;
+  const projectProviderLock = yield* Effect.serviceOption(
+    ProjectProviderLock.ProjectProviderLock,
+  );
 
   const assertProviderInstanceEnabled: ThreadManagementServiceShape["assertProviderInstanceEnabled"] =
     (input) =>
@@ -635,6 +651,12 @@ const make = Effect.gen(function* () {
               ),
         ),
       );
+
+  const assertProjectProviderNotLocked: ThreadManagementServiceShape["assertProjectProviderNotLocked"] =
+    (input) =>
+      Option.isNone(projectProviderLock)
+        ? Effect.void
+        : projectProviderLock.value.assertAllowed(input);
 
   const isProviderInstanceEnabledForProject: ThreadManagementServiceShape["isProviderInstanceEnabledForProject"] =
     (input) =>
@@ -754,15 +776,18 @@ const make = Effect.gen(function* () {
     );
 
   const assertDispatchTargetEnabled = (command: OrchestrationV2ServerCommand) => {
+    const assertUsable = (input: { projectId: ProjectId; instanceId: ProviderInstanceId }) =>
+      assertProviderInstanceEnabled({ ...input, commandId: command.commandId }).pipe(
+        Effect.andThen(assertProjectProviderNotLocked(input)),
+      );
     switch (command.type) {
       case "thread.metadata.update":
         return command.continuation === undefined
           ? Effect.void
           : orchestrator.getThreadRecords(command.threadId, []).pipe(
               Effect.flatMap((projection) =>
-                assertProviderInstanceEnabled({
+                assertUsable({
                   projectId: projection.thread.projectId,
-                  commandId: command.commandId,
                   instanceId: projection.thread.modelSelection.instanceId,
                 }),
               ),
@@ -770,9 +795,8 @@ const make = Effect.gen(function* () {
       case "message.dispatch":
         return orchestrator.getThreadRecords(command.threadId, []).pipe(
           Effect.flatMap((projection) =>
-            assertProviderInstanceEnabled({
+            assertUsable({
               projectId: projection.thread.projectId,
-              commandId: command.commandId,
               instanceId: (command.modelSelection ?? projection.thread.modelSelection).instanceId,
             }),
           ),
@@ -780,9 +804,8 @@ const make = Effect.gen(function* () {
       case "delegated_task.request":
         return orchestrator.getThreadRecords(command.parentThreadId, []).pipe(
           Effect.flatMap((parent) =>
-            assertProviderInstanceEnabled({
+            assertUsable({
               projectId: parent.thread.projectId,
-              commandId: command.commandId,
               instanceId: command.modelSelection.instanceId,
             }),
           ),
@@ -796,9 +819,8 @@ const make = Effect.gen(function* () {
               const run = projection.runs.find((candidate) => candidate.id === command.runId);
               return run === undefined
                 ? Effect.void
-                : assertProviderInstanceEnabled({
+                : assertUsable({
                     projectId: projection.thread.projectId,
-                    commandId: command.commandId,
                     instanceId: run.providerInstanceId,
                   });
             }),
@@ -1613,7 +1635,9 @@ const make = Effect.gen(function* () {
   )(function* (input) {
     const { subagents } = yield* orchestrator.getThreadRecords(input.threadId, ["subagents"]);
     const failures: Array<
-      Orchestrator.OrchestratorV2Error | ThreadManagementProviderInstanceDisabledError
+      | Orchestrator.OrchestratorV2Error
+      | ThreadManagementProviderInstanceDisabledError
+      | ProjectProviderLock.ProjectProviderLockedError
     > = [];
     const stoppedChildThreadIds = new Set<ThreadId>();
     for (const task of subagents) {
@@ -1766,6 +1790,7 @@ const make = Effect.gen(function* () {
     listProjectThreads,
     sendToThread,
     assertProviderInstanceEnabled,
+    assertProjectProviderNotLocked,
     isProviderInstanceEnabledForProject,
     hasReceipt,
     waitForThread,

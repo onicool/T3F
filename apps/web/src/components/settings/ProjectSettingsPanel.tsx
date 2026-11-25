@@ -337,6 +337,20 @@ function ProjectDetail({
     setIsSavingFavicon(false);
   };
 
+  const [isSavingPersonalInfoLock, setIsSavingPersonalInfoLock] = useState(false);
+  const savingPersonalInfoLockRef = useRef(false);
+  const setContainsPersonalInfo = async (checked: boolean) => {
+    if (savingPersonalInfoLockRef.current) return;
+    savingPersonalInfoLockRef.current = true;
+    setIsSavingPersonalInfoLock(true);
+    await updateAllMembers(
+      { containsPersonalInfo: checked },
+      checked ? "Failed to lock project to Codex" : "Failed to unlock project",
+    );
+    savingPersonalInfoLockRef.current = false;
+    setIsSavingPersonalInfoLock(false);
+  };
+
   const hasMultipleCheckouts = group.memberProjects.length > 1;
   const canResetScratchTitle =
     group.memberProjects.every((member) => member.isScratch) &&
@@ -663,6 +677,18 @@ function ProjectDetail({
               />
             </>
           ) : null}
+          <SettingsRow
+            title="Contains personal information"
+            description="When on, only Codex can run threads, scheduled tasks, and text generation for this project."
+            control={
+              <Switch
+                checked={group.containsPersonalInfo ?? false}
+                disabled={isSavingPersonalInfoLock || !canEditGroup}
+                onCheckedChange={(checked) => void setContainsPersonalInfo(Boolean(checked))}
+                aria-label="Contains personal information"
+              />
+            }
+          />
         </SettingsSection>
         <ProjectDefaultsSettings category="project" />
         <ProjectActionsSettings />

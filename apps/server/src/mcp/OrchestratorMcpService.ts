@@ -267,6 +267,7 @@ function threadManagementFailure(error: unknown): OrchestratorMcpFailure {
     case "ThreadManagementDurableRunProjectionError":
       return failure("orchestration_error", error.message);
     case "ThreadManagementProviderInstanceDisabledError":
+    case "ProjectProviderLockedError":
       return failure("invalid_request", error.message);
   }
 }
@@ -1511,7 +1512,15 @@ const make = Effect.gen(function* () {
         commandId,
         instanceId: target.modelSelection.instanceId,
       })
-      .pipe(Effect.mapError(threadManagementFailure));
+      .pipe(
+        Effect.andThen(
+          threadManagement.assertProjectProviderNotLocked({
+            projectId: parent.thread.projectId,
+            instanceId: target.modelSelection.instanceId,
+          }),
+        ),
+        Effect.mapError(threadManagementFailure),
+      );
 
   const resolveTargetRechecking = (input: Parameters<typeof resolveTarget>[0]) => {
     const instanceId =
@@ -2753,7 +2762,8 @@ const make = Effect.gen(function* () {
         })
         .pipe(
           Effect.mapError((error) =>
-            error._tag === "ThreadManagementProviderInstanceDisabledError"
+            error._tag === "ThreadManagementProviderInstanceDisabledError" ||
+            error._tag === "ProjectProviderLockedError"
               ? threadManagementFailure(error)
               : failure(
                   "orchestration_error",
@@ -3145,7 +3155,8 @@ const make = Effect.gen(function* () {
                   })
                   .pipe(
                     Effect.mapError((error) =>
-                      error._tag === "ThreadManagementProviderInstanceDisabledError"
+                      error._tag === "ThreadManagementProviderInstanceDisabledError" ||
+                      error._tag === "ProjectProviderLockedError"
                         ? threadManagementFailure(error)
                         : failure(
                             "orchestration_error",

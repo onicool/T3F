@@ -16,6 +16,7 @@ import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 
 import type { OrchestratorV2Error } from "../orchestration-v2/Orchestrator.ts";
+import type * as ProjectProviderLock from "../orchestration-v2/ProjectProviderLock.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 import { resolveInteractionMode, resolveRuntimeMode } from "./delegatedTaskModes.ts";
 import { fencingLinkOrigin } from "./linkOrigin.ts";
@@ -75,9 +76,13 @@ export const unavailable = () =>
   });
 
 export const dispatchFailure = (
-  error: OrchestratorV2Error | ThreadManagement.ThreadManagementProviderInstanceDisabledError,
+  error:
+    | OrchestratorV2Error
+    | ThreadManagement.ThreadManagementProviderInstanceDisabledError
+    | ProjectProviderLock.ProjectProviderLockedError,
 ) =>
   error._tag === "ThreadManagementProviderInstanceDisabledError" ||
+  error._tag === "ProjectProviderLockedError" ||
   error._tag === "OrchestratorRuntimeModeAboveCeilingError" ||
   error._tag === "OrchestratorProviderSelectionBusyError"
     ? new OrchestratorMcpFailure({ code: "invalid_request", message: error.message })

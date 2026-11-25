@@ -57,6 +57,7 @@ import { deliverContextHandoffs, withInlineContext } from "./ContextHandoffDeliv
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ProjectionStore from "./ProjectionStore.ts";
+import * as ProjectProviderLock from "./ProjectProviderLock.ts";
 import { unsentManualContinuationSource } from "./manualContinuation.ts";
 import * as ProviderSessionManager from "./ProviderSessionManager.ts";
 import {
@@ -195,6 +196,9 @@ export const layer: Layer.Layer<
     const providerAuth = yield* ProviderAuthService.ProviderAuthService;
     const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
     const providerSessions = yield* ProviderSessionManager.ProviderSessionManagerV2;
+    const projectProviderLock = yield* Effect.serviceOption(
+      ProjectProviderLock.ProjectProviderLock,
+    );
     const runExecution = yield* RunExecutionService.RunExecutionServiceV2;
     const runtimePolicy = yield* RuntimePolicy.RuntimePolicyV2;
     const restoreMissingWorktree = yield* makeRestoreMissingWorktree;
@@ -552,6 +556,25 @@ export const layer: Layer.Layer<
           });
         },
       );
+      // Final defense: a locked project never opens a provider session on a non-Codex instance,
+      // even for runs prepared before the flag was turned on.
+      if (
+        Option.isSome(projectProviderLock) &&
+        (yield* projectProviderLock.value.isLockedOut({
+          projectId: projection.thread.projectId,
+          instanceId: run.providerInstanceId,
+        }))
+      ) {
+        yield* settleStartFailure({
+          signal: "project-provider-locked",
+          title: "Project is locked to Codex",
+          error: new ProjectProviderLock.ProjectProviderLockedError({
+            projectId: projection.thread.projectId,
+            instanceId: run.providerInstanceId,
+          }),
+        });
+        return;
+      }
       if (
         providerMessage.attachments.length === 0 &&
         providerMessage.text.trimStart().startsWith("/")

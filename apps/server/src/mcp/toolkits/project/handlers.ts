@@ -297,7 +297,10 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
                 message: error.message,
               });
             }
-            if (error._tag === "ThreadManagementProviderInstanceDisabledError") {
+            if (
+              error._tag === "ThreadManagementProviderInstanceDisabledError" ||
+              error._tag === "ProjectProviderLockedError"
+            ) {
               return new OrchestratorMcpFailure({
                 code: "invalid_request",
                 message: error.message,

@@ -21,6 +21,7 @@ const row = (overrides: Partial<ProjectRow> = {}): ProjectRow => ({
   defaultThreadEnvMode: null,
   hasCustomTitle: false,
   autoPull: false,
+  containsPersonalInfo: false,
   faviconPath: null,
   projectIcon: null,
   scripts: [],

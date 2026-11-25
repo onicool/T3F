@@ -162,6 +162,8 @@ export const Project = Schema.Struct({
   defaultThreadEnvMode: Schema.optional(Schema.NullOr(ThreadEnvMode)),
   // Opt-in because background sync performs network I/O and may move the checkout.
   autoPull: Schema.optional(Schema.Boolean),
+  // When true, only Codex provider instances may run work for this project.
+  containsPersonalInfo: Schema.optional(Schema.Boolean),
   scripts: Schema.Array(ProjectScript),
   pinnedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
@@ -182,6 +184,7 @@ export const ProjectCreatePayload = Schema.Struct({
   workspaceRoot: TrimmedNonEmptyString,
   createWorkspaceRootIfMissing: Schema.optional(Schema.Boolean),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
+  containsPersonalInfo: Schema.optional(Schema.Boolean),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
 });
 export type ProjectCreatePayload = typeof ProjectCreatePayload.Type;
@@ -191,6 +194,7 @@ export const ProjectUpdatePayload = Schema.Struct({
   workspaceRoot: Schema.optional(TrimmedNonEmptyString),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   autoPull: Schema.optional(Schema.Boolean),
+  containsPersonalInfo: Schema.optional(Schema.Boolean),
   projectIcon: Schema.optional(Schema.NullOr(ProjectIconOverride)),
   faviconPath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   defaultThreadEnvMode: Schema.optional(Schema.NullOr(ThreadEnvMode)),

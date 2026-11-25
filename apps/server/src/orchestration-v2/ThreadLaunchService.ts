@@ -58,6 +58,7 @@ import type * as Orchestrator from "./Orchestrator.ts";
 import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
 import { randomUuidV4 } from "@t3tools/provider-core/server/randomUuid";
 import { DispatchModeLimit } from "./DispatchModeLimit.ts";
+import * as ProjectProviderLock from "./ProjectProviderLock.ts";
 import * as ThreadManagement from "./ThreadManagementService.ts";
 
 // The agent waits for its branch name; a rate-limited provider would hold it for minutes.
@@ -210,7 +211,9 @@ export class ThreadLaunchService extends Context.Service<
       input: ThreadLaunchInput,
     ) => Effect.Effect<
       ThreadLaunchResult,
-      ThreadLaunchError | ThreadManagement.ThreadManagementProviderInstanceDisabledError
+      | ThreadLaunchError
+      | ThreadManagement.ThreadManagementProviderInstanceDisabledError
+      | ProjectProviderLock.ProjectProviderLockedError
     >;
     /** Check a new worktree's base ref and branch name before creation for early errors; launch otherwise accepts and reports these failures inside the thread. */
     readonly checkWorktreeBase: (
@@ -230,6 +233,7 @@ export class ThreadLaunchService extends Context.Service<
       Orchestrator.OrchestratorV2DispatchResult,
       | Orchestrator.OrchestratorV2Error
       | ThreadManagement.ThreadManagementProviderInstanceDisabledError
+      | ProjectProviderLock.ProjectProviderLockedError
     >;
     readonly prepareRun: (input: ThreadLaunchPreparationInput) => Effect.Effect<void>;
   }
@@ -1213,6 +1217,10 @@ const make = Effect.gen(function* () {
       yield* threads.assertProviderInstanceEnabled({
         projectId: input.projectId,
         commandId: input.commandId,
+        instanceId: input.modelSelection.instanceId,
+      });
+      yield* threads.assertProjectProviderNotLocked({
+        projectId: input.projectId,
         instanceId: input.modelSelection.instanceId,
       });
       return yield* Effect.gen(function* () {

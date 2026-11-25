@@ -1,6 +1,7 @@
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import type { ModelSelection, ProjectId, ProviderInstanceId } from "@t3tools/contracts";
 import {
   isProviderAvailable,
@@ -14,6 +15,7 @@ import * as ServerSettings from "../serverSettings.ts";
 import type { ProviderTextGeneration } from "@t3tools/provider-core/server/textGeneration";
 import { TextGenerationError } from "@t3tools/contracts";
 
+import * as ProjectProviderLock from "../orchestration-v2/ProjectProviderLock.ts";
 import * as ProviderInstallationGate from "../provider/ProviderInstallationGate.ts";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import type { ProviderInstance } from "@t3tools/provider-core/server/driver";
@@ -77,6 +79,9 @@ export const make = Effect.gen(function* () {
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const installationGate = yield* ProviderInstallationGate.ProviderInstallationGate;
   const textGenerators = yield* TextGenerators.TextGenerators;
+  const projectProviderLock = yield* Effect.serviceOption(
+    ProjectProviderLock.ProjectProviderLock,
+  );
   const generate = Effect.fn("TextGeneration.generate")(function* <A>(
     operation: TextGenerationOp,
     selection: ModelSelection,
@@ -86,12 +91,23 @@ export const make = Effect.gen(function* () {
       modelSelection: ModelSelection,
     ) => Effect.Effect<A, TextGenerationError>,
   ) {
+    // A project locked for personal information generates text with Codex only: titles and
+    // branch names carry message text, so a non-Codex selection must not serve or fall back.
+    const projectLocked =
+      projectId == null || Option.isNone(projectProviderLock)
+        ? false
+        : yield* projectProviderLock.value.isProjectLocked(projectId);
+    const selectionIsCodex =
+      !projectLocked ||
+      ProjectProviderLock.isCodexDriverKind(
+        (yield* registry.getInstance(selection.instanceId))?.driverKind,
+      );
     const textGenerator = yield* textGenerators.runner(selection.instanceId);
     // A review guide reaches a text generator only through a fallback; it needs an agent instead.
     const textGeneratorId = selection.instanceId;
     const textGeneratorCannotRun =
       textGenerator !== undefined && operation === "generateReviewGuide";
-    if (textGenerator !== undefined && !textGeneratorCannotRun) {
+    if (textGenerator !== undefined && !textGeneratorCannotRun && selectionIsCodex) {
       return yield* invoke(
         TextGenerationOperations.fromRunner("TextGenerator", textGenerator),
         selection,
@@ -107,6 +123,7 @@ export const make = Effect.gen(function* () {
     // Only a failed probe counts: a pending one is also not installed yet.
     const unusable =
       textGeneratorCannotRun ||
+      (projectLocked && !selectionIsCodex) ||
       (selected?.enabled === true &&
         (!isProviderTextGenerationCapable(selected) ||
           selected.models.find((model) => model.slug === selection.model)
@@ -131,6 +148,7 @@ export const make = Effect.gen(function* () {
             const provider = snapshots.find((candidate) => candidate.instanceId === instanceId);
             return (
               instanceId !== selection.instanceId &&
+              (!projectLocked || ProjectProviderLock.isCodexDriverKind(driver)) &&
               provider?.enabled === true &&
               resolveProjectProviderInstanceEnabled(settings, projectId ?? null, instanceId) &&
               provider.installed &&
@@ -150,6 +168,18 @@ export const make = Effect.gen(function* () {
         operation,
         detail:
           "Review guides need a coding agent that can read the checkout. None is ready. Pick Codex or Claude as the review guide model in Settings → Source control.",
+      });
+    }
+    if (
+      projectLocked &&
+      !ProjectProviderLock.isCodexDriverKind(
+        (yield* registry.getInstance(selection.instanceId))?.driverKind,
+      )
+    ) {
+      return yield* new TextGenerationError({
+        operation,
+        detail:
+          "This project contains personal information, so text generation can only run with Codex.",
       });
     }
     return yield* installationGate.execute(

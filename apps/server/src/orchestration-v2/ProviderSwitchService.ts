@@ -12,6 +12,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
+import * as ProjectProviderLock from "./ProjectProviderLock.ts";
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
 import {
   decideProviderSessionTransition,
@@ -60,6 +61,9 @@ export const layer: Layer.Layer<
   ProviderSwitchServiceV2,
   Effect.gen(function* () {
     const adapters = yield* ProviderAdapterRegistry.ProviderAdapterRegistryV2;
+    const projectProviderLock = yield* Effect.serviceOption(
+      ProjectProviderLock.ProjectProviderLock,
+    );
     return ProviderSwitchServiceV2.of({
       plan: Effect.fn("ProviderSwitchService.plan")(
         function* ({ projection, targetModelSelection }) {
@@ -117,8 +121,20 @@ export const layer: Layer.Layer<
           // workspace of whichever thread opened it, not a move of this thread.
           const workspace =
             projection.thread.worktreePath ?? currentSession?.cwd ?? "<unresolved-workspace>";
-          const transition =
-            Option.isNone(targetInstance) || Option.isNone(targetAdapter)
+          const lockedOut =
+            Option.isSome(targetInstance) &&
+            Option.isSome(projectProviderLock) &&
+            (yield* projectProviderLock.value.isLockedOut({
+              projectId: projection.thread.projectId,
+              instanceId: targetModelSelection.instanceId,
+            }));
+          const transition = lockedOut
+            ? ({
+                type: "reject",
+                reason:
+                  "This project contains personal information and can only run with Codex.",
+              } as const)
+            : Option.isNone(targetInstance) || Option.isNone(targetAdapter)
               ? ({
                   type: "reject",
                   reason: "The target provider instance is unavailable.",

@@ -357,6 +357,13 @@ export const continueRestartedRun = Effect.fn("RestartContinuation.continueResta
               projectId: error.projectId,
               instanceId: error.instanceId,
             }),
+          ProjectProviderLockedError: (error) =>
+            Effect.logInfo("orchestration-v2.restart-continuation.project-locked", {
+              threadId: input.threadId,
+              sourceRunId: input.sourceRunId,
+              projectId: error.projectId,
+              instanceId: error.instanceId,
+            }),
           OrchestratorRuntimeModeAboveCeilingError: () =>
             Effect.logInfo("orchestration-v2.restart-continuation.above-ceiling", {
               threadId: input.threadId,

@@ -438,6 +438,16 @@ export const layerExecutor: Layer.Layer<
                                 instanceId: disabledError.instanceId,
                               },
                             ),
+                          ProjectProviderLockedError: (lockedError) =>
+                            Effect.logInfo(
+                              "orchestration-v2.effect-worker.steer-follow-up-locked",
+                              {
+                                threadId: effect.threadId,
+                                messageId: message.id,
+                                projectId: lockedError.projectId,
+                                instanceId: lockedError.instanceId,
+                              },
+                            ),
                         }),
                       );
                   }),

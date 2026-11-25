@@ -34,6 +34,7 @@ import * as LegacyV1ThreadImporter from "./legacy/LegacyV1ThreadImporter.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import * as ProjectionMaintenance from "./ProjectionMaintenance.ts";
+import * as ProjectProviderLock from "./ProjectProviderLock.ts";
 import * as ProjectStore from "./ProjectStore.ts";
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
 import * as ProviderContinuationRequests from "@t3tools/provider-core/server/ProviderContinuationRequests";
@@ -66,6 +67,10 @@ export const layerEventInfrastructure = Layer.mergeAll(
 );
 
 const layerRuntimePolicyProvided = RuntimePolicy.layerFromProjectStore.pipe(
+  Layer.provide(ProjectStore.layer),
+);
+
+const layerProjectProviderLockProvided = ProjectProviderLock.layer.pipe(
   Layer.provide(ProjectStore.layer),
 );
 
@@ -126,7 +131,12 @@ const layerContextHandoffServiceProvided = ContextHandoffService.layer.pipe(
 );
 
 const layerProviderSwitchServiceProvided = ProviderSwitchService.layer.pipe(
-  Layer.provide(ProviderAdapterRegistry.layerFromProviderInstanceRegistry),
+  Layer.provide(
+    Layer.mergeAll(
+      ProviderAdapterRegistry.layerFromProviderInstanceRegistry,
+      layerProjectProviderLockProvided,
+    ),
+  ),
 );
 
 const layerCommandOutputHubProvided = CommandOutputHub.layer.pipe(
@@ -143,6 +153,7 @@ const layerProviderSessionManagerProvided = ProviderSessionManager.layer.pipe(
       layerProviderEventIngestorProvided,
       ProjectionStore.layer,
       ProviderInstallationGate.layer,
+      layerProjectProviderLockProvided,
     ),
   ),
 );
@@ -177,6 +188,7 @@ const layerProviderTurnStartServiceProvided = ProviderTurnStartService.layer.pip
       layerProviderAuthServiceProvided,
       layerRunExecutionServiceProvided,
       layerRuntimePolicyProvided,
+      layerProjectProviderLockProvided,
       TurnItemPositionStore.layer,
     ),
   ),
@@ -269,6 +281,7 @@ const layerThreadManagementProvided = ThreadManagementService.layerWithLegacyImp
       layerCommandReceiptStoreProvided,
       layerProviderSessionManagerProvided,
       layerThreadWorktreeRestore,
+      layerProjectProviderLockProvided,
     ),
   ),
 );
@@ -328,7 +341,11 @@ const layerThreadTitleRegenerationProvided = ThreadTitleRegenerationService.laye
     Layer.mergeAll(
       layerThreadManagementProvided,
       ProjectStore.layer,
-      TextGeneration.layer.pipe(Layer.provide(ProviderInstallationGate.layer)),
+      TextGeneration.layer.pipe(
+        Layer.provide(
+          Layer.mergeAll(ProviderInstallationGate.layer, layerProjectProviderLockProvided),
+        ),
+      ),
     ),
   ),
 );

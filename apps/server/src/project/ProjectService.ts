@@ -203,6 +203,7 @@ export const make = Effect.gen(function* () {
     defaultModelSelection: row.defaultModelSelection,
     defaultThreadEnvMode: row.defaultThreadEnvMode,
     autoPull: row.autoPull,
+    containsPersonalInfo: row.containsPersonalInfo,
     projectIcon: row.projectIcon,
     scripts: row.scripts,
     pinnedAt: row.pinnedAt,
@@ -407,6 +408,9 @@ export const make = Effect.gen(function* () {
         projectId: input.projectId,
         title: input.title,
         workspaceRoot,
+        ...(input.containsPersonalInfo === undefined
+          ? {}
+          : { containsPersonalInfo: input.containsPersonalInfo }),
         ...(input.scripts === undefined ? {} : { scripts: input.scripts }),
       });
       yield* projectEnrichment.invalidate([workspaceRoot]);
@@ -441,6 +445,9 @@ export const make = Effect.gen(function* () {
           ? {}
           : { defaultModelSelection: input.defaultModelSelection }),
         ...(input.autoPull === undefined ? {} : { autoPull: input.autoPull }),
+        ...(input.containsPersonalInfo === undefined
+          ? {}
+          : { containsPersonalInfo: input.containsPersonalInfo }),
         ...(input.projectIcon === undefined ? {} : { projectIcon: input.projectIcon }),
         ...(input.faviconPath === undefined ? {} : { faviconPath: input.faviconPath }),
         ...(input.defaultThreadEnvMode === undefined
