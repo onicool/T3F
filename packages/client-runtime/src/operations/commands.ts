@@ -58,6 +58,7 @@ export interface CreateProjectInput extends CommandMetadata {
   readonly workspaceRoot: string;
   readonly createWorkspaceRootIfMissing?: boolean;
   readonly defaultModelSelection?: ModelSelection | null;
+  readonly containsPersonalInfo?: boolean;
   readonly scripts?: ReadonlyArray<ProjectScript>;
 }
 
@@ -67,6 +68,7 @@ export interface UpdateProjectInput extends CommandMetadata {
   readonly workspaceRoot?: string;
   readonly defaultModelSelection?: ModelSelection | null;
   readonly autoPull?: boolean;
+  readonly containsPersonalInfo?: boolean;
   readonly projectIcon?: ProjectIconOverride | null;
   readonly faviconPath?: string | null;
   readonly defaultThreadEnvMode?: ThreadEnvMode | null;
@@ -390,6 +392,7 @@ const mutateProject = Effect.fn("EnvironmentCommands.mutateProject")(function* (
         readonly workspaceRoot: string;
         readonly createWorkspaceRootIfMissing?: boolean;
         readonly defaultModelSelection?: ModelSelection | null;
+        readonly containsPersonalInfo?: boolean;
         readonly scripts?: ReadonlyArray<ProjectScript>;
       }
     | {
@@ -399,6 +402,7 @@ const mutateProject = Effect.fn("EnvironmentCommands.mutateProject")(function* (
         readonly title?: string;
         readonly workspaceRoot?: string;
         readonly defaultModelSelection?: ModelSelection | null;
+        readonly containsPersonalInfo?: boolean;
         readonly scripts?: ReadonlyArray<ProjectScript>;
       }
     | {
@@ -426,6 +430,9 @@ export const createProject = Effect.fn("EnvironmentCommands.createProject")(func
     ...(input.defaultModelSelection === undefined
       ? {}
       : { defaultModelSelection: input.defaultModelSelection }),
+    ...(input.containsPersonalInfo === undefined
+      ? {}
+      : { containsPersonalInfo: input.containsPersonalInfo }),
     ...(input.scripts === undefined ? {} : { scripts: input.scripts }),
   });
 });
@@ -443,6 +450,9 @@ export const updateProject = Effect.fn("EnvironmentCommands.updateProject")(func
       ? {}
       : { defaultModelSelection: input.defaultModelSelection }),
     ...(input.autoPull === undefined ? {} : { autoPull: input.autoPull }),
+    ...(input.containsPersonalInfo === undefined
+      ? {}
+      : { containsPersonalInfo: input.containsPersonalInfo }),
     ...(input.projectIcon === undefined ? {} : { projectIcon: input.projectIcon }),
     ...(input.faviconPath === undefined ? {} : { faviconPath: input.faviconPath }),
     ...(input.defaultThreadEnvMode === undefined
