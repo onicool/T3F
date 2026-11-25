@@ -22,12 +22,15 @@ export class ProjectProviderLockedError extends Schema.TaggedError<ProjectProvid
   "ProjectProviderLockedError",
   {
     projectId: ProjectId,
+    projectTitle: Schema.optional(Schema.String),
     instanceId: ProviderInstanceId,
     driverKind: Schema.optional(ProviderDriverKind),
   },
 ) {
   override get message(): string {
-    return `Project ${this.projectId} contains personal information and can only run with Codex; provider instance "${this.instanceId}" is not a Codex instance.`;
+    const project =
+      this.projectTitle === undefined ? `${this.projectId}` : `"${this.projectTitle}"`;
+    return `Project ${project} contains personal information and can only run with Codex; provider instance "${this.instanceId}" is not a Codex instance.`;
   }
 }
 
@@ -57,13 +60,22 @@ export const make = Effect.gen(function* () {
   const providerInstances = yield* ProviderInstanceRegistry.ProviderInstanceRegistry;
 
   // A lock that cannot be read must not silently open: unreadable state counts as locked.
+  const projectLockState = (
+    projectId: ProjectId,
+  ): Effect.Effect<{ readonly locked: boolean; readonly title: string | undefined }> =>
+    projects.get(projectId).pipe(
+      Effect.map((row) =>
+        Option.isSome(row)
+          ? { locked: row.value.containsPersonalInfo === true, title: row.value.title }
+          : { locked: false, title: undefined },
+      ),
+      Effect.orElseSucceed(() => ({ locked: true, title: undefined })),
+    );
+
   const isProjectLocked: ProjectProviderLockShape["isProjectLocked"] = Effect.fn(
     "ProjectProviderLock.isProjectLocked",
   )(function (projectId) {
-    return projects.get(projectId).pipe(
-      Effect.map((row) => Option.isSome(row) && row.value.containsPersonalInfo === true),
-      Effect.orElseSucceed(() => true),
-    );
+    return projectLockState(projectId).pipe(Effect.map((state) => state.locked));
   });
 
   const driverKindOf = (instanceId: ProviderInstanceId) =>
@@ -81,11 +93,13 @@ export const make = Effect.gen(function* () {
   const assertAllowed: ProjectProviderLockShape["assertAllowed"] = Effect.fn(
     "ProjectProviderLock.assertAllowed",
   )(function* (input) {
-    if (!(yield* isProjectLocked(input.projectId))) return;
+    const state = yield* projectLockState(input.projectId);
+    if (!state.locked) return;
     const driverKind = yield* driverKindOf(input.instanceId);
     if (isCodexDriverKind(driverKind)) return;
     return yield* new ProjectProviderLockedError({
       projectId: input.projectId,
+      ...(state.title === undefined ? {} : { projectTitle: state.title }),
       instanceId: input.instanceId,
       ...(driverKind === undefined ? {} : { driverKind }),
     });
