@@ -347,6 +347,13 @@ export async function runAcpMcpCliFastPath(
   command: "acp-mcp-bridge" | "acp-mcp-call",
   args: ReadonlyArray<string>,
 ): Promise<void> {
+  // Server-computed guard verdict (Codex lock): refuse before any relay starts.
+  // The Rust bridge applies the same check so the guard is backend-independent.
+  if (process.env.T3F_BRIDGE_GUARD_BLOCK === "1") {
+    process.stderr.write(`${command} is blocked for this session by the bridge guard.\n`);
+    process.exitCode = 2;
+    return;
+  }
   const endpoint = process.env.T3_ACP_MCP_ENDPOINT;
   const authorization = process.env.T3_ACP_MCP_AUTHORIZATION;
   if (endpoint === undefined || authorization === undefined) {

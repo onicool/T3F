@@ -363,6 +363,10 @@
       "types": "./src/nodeRuntime.ts",
       "import": "./src/nodeRuntime.ts"
     },
+    "./acpMcpBridge": {
+      "types": "./src/acpMcpBridge.ts",
+      "import": "./src/acpMcpBridge.ts"
+    },
     "./AgentScope": {
       "types": "./src/AgentScope.ts",
       "import": "./src/AgentScope.ts"

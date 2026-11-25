@@ -37,7 +37,11 @@ import {
 import { AgentScope, AgentScopeThreadId } from "@t3tools/shared/AgentScope";
 import { HTML_RENDER_TOOL_NAME } from "@t3tools/shared/htmlRender";
 import { modelSelectionsEqual } from "@t3tools/shared/model";
-import { type SelfInvocation, selfInvocationArgs } from "@t3tools/shared/nodeRuntime";
+import {
+  ACP_MCP_BRIDGE_GUARD_BLOCK_ENV,
+  resolveAcpMcpInvocation,
+} from "@t3tools/shared/acpMcpBridge";
+import type { SelfInvocation } from "@t3tools/shared/nodeRuntime";
 import { resolveT3McpToolId } from "@t3tools/shared/t3McpToolPresentation";
 import {
   compactDynamicToolOutput,
@@ -916,17 +920,23 @@ function acpMcpContext(
   if (session === undefined) {
     return { servers: [], acpServers: [], httpServers: [] };
   }
+  const invocation = resolveAcpMcpInvocation({ self, endpoint: session.endpoint });
+  const guardEnv =
+    session.bridgeGuardBlock === true
+      ? [{ name: ACP_MCP_BRIDGE_GUARD_BLOCK_ENV, value: "1" }]
+      : [];
   // codex-acp 1.2.0 and pi-acp drop injected HTTP servers, so HTTP is opt-in per flavor.
   return {
     servers: [
       {
         name: "t3-code",
-        command: self.command,
-        args: [...selfInvocationArgs(self, ["acp-mcp-bridge"])],
+        command: invocation.command,
+        args: [...invocation.args],
         env: [
-          { name: "ELECTRON_RUN_AS_NODE", value: "1" },
+          ...(invocation.runAsNode ? [{ name: "ELECTRON_RUN_AS_NODE", value: "1" }] : []),
           { name: "T3_ACP_MCP_ENDPOINT", value: session.endpoint },
           { name: "T3_ACP_MCP_AUTHORIZATION", value: session.authorizationHeader },
+          ...guardEnv,
         ],
       },
     ],
@@ -957,8 +967,16 @@ function acpMcpContext(
       T3CODE_THREAD_ID: session.threadId,
       T3_ACP_MCP_ENDPOINT: session.endpoint,
       T3_ACP_MCP_AUTHORIZATION: session.authorizationHeader,
-      T3_ACP_MCP_NODE: self.command,
-      ...(self.entrypoint === undefined ? {} : { T3_ACP_MCP_ENTRYPOINT: self.entrypoint }),
+      // The terminal fallback calls `acp-mcp-call` through these two variables,
+      // so they must name the same backend the selector picked for the bridge.
+      // With the Rust bridge the entrypoint is blanked, not omitted, so a value
+      // inherited from the parent environment cannot leak through.
+      T3_ACP_MCP_NODE: invocation.command,
+      T3_ACP_MCP_ENTRYPOINT:
+        invocation.backend === "node" ? (self.entrypoint ?? "") : "",
+      ...(session.bridgeGuardBlock === true
+        ? { [ACP_MCP_BRIDGE_GUARD_BLOCK_ENV]: "1" }
+        : {}),
     },
   };
 }

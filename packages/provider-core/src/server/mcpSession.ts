@@ -20,6 +20,11 @@ export interface McpProviderSessionConfig {
   readonly agentDeviceEnvironment?: Readonly<Record<string, string>>;
   /** True while a delegated task this thread started will wake it with its result. */
   readonly hasPendingWake?: Effect.Effect<boolean>;
+  /**
+   * Precomputed bridge guard verdict: when true, ACP bridge processes for this
+   * session must refuse to start (expanded to an env flag by the ACP adapter).
+   */
+  readonly bridgeGuardBlock?: boolean;
 }
 
 export function withAgentDeviceEnvironment(

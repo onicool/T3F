@@ -574,6 +574,10 @@ export const layerWithOptions = (
                   Effect.map((thread) => thread.lineage.relationshipToParent === "subagent"),
                   Effect.orElseSucceed(() => false),
                 );
+                // TODO(Step 4): replace with the Codex lock central check for
+                // (thread's project, providerInstanceId). Until then no session
+                // is bridge-guarded; only the env plumbing is in place.
+                const bridgeGuardBlock = false;
                 const existing = yield* mcpSessions.read(threadId);
                 if (existing !== undefined) {
                   // Reserve before async validation so release cannot revoke between validation and reservation.
@@ -596,7 +600,9 @@ export const layerWithOptions = (
                     resolved.capabilities.has("preview") === browserToolsAvailable &&
                     resolved.capabilities.has("device") === deviceToolsAvailable &&
                     // A credential issued while the lineage read failed is replaced once it works.
-                    (resolved.thread.subagent === true) === subagent
+                    (resolved.thread.subagent === true) === subagent &&
+                    // A session issued before the guard verdict flipped must not be reused.
+                    (existing.bridgeGuardBlock === true) === bridgeGuardBlock
                   ) {
                     return { mcpCredentialId: existing.providerSessionId, issued: false };
                   }
@@ -612,6 +618,7 @@ export const layerWithOptions = (
                 });
                 yield* mcpSessions.set({
                   ...credential.config,
+                  bridgeGuardBlock,
                   hasPendingWake: projectionStore
                     .getThreadRecords(threadId, ["runs", "subagents"])
                     .pipe(
